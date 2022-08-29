@@ -1,0 +1,29 @@
+import paho.mqtt.client as mqtt
+import boto3, uuid
+import datetime as dt
+from decimal import Decimal
+
+db = boto3.resource(
+    "dynamodb",
+    aws_access_key_id="{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}",
+    aws_secret_access_key="{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') }}",
+    region_name="us-east-1"
+)
+table = db.Table("sensor_values")
+
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code "+str(rc))
+    client.subscribe("test/sensor_value")
+
+def on_message(client, userdata, msg):
+    print(msg.topic+" "+str(msg.payload))
+
+    print("\tSaving to db...")
+    table.put_item(Item={"date":str(dt.datetime.now()), "sensor_value": Decimal(str(float(msg.payload))), "measurement_id":str(uuid.uuid4())})	
+
+client = mqtt.Client()
+client.on_connect = on_connect
+client.on_message = on_message
+
+client.connect("{{ groups['tag_Name_ansible_MQTT_broker'][0] }}", 1883, 60)
+client.loop_forever()

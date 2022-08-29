@@ -1,0 +1,144 @@
+---
+- name: Create dynamodb table, ec2 keypair and security group
+  hosts: localhost
+  tasks:
+    - name: Create sensor_values table
+      community.aws.dynamodb_table:
+        name: sensor_values
+        region: us-east-1
+        hash_key_name: measurement_id
+        hash_key_type: STRING
+    - name: Create ec2 keypair
+      amazon.aws.ec2_key:
+        name: ansible_keypair
+        region: us-east-1
+      register: keypair
+    - name: Save private key if new key
+      copy:
+        dest: ./ansible_keypair.pem
+        content: "{{ keypair['key']['private_key'] }}"
+        mode: '600'
+      when: keypair.changed
+    - name: Create security group
+      amazon.aws.ec2_group:
+        name: ansible_MQTT_sg
+        description: Security group for the MQTT sample experiment set up using ansible.
+        region: us-east-1
+        state: present
+        rules:
+          - proto: icmp
+            ports: 
+              - -1
+            cidr_ip: 0.0.0.0/0
+            rule_desc: Allow pinging
+          - proto: tcp
+            ports:
+              - 22
+            cidr_ip: 0.0.0.0/0
+            rule_desc: Allow SSH
+          - proto: all
+            group_name: ansible_MQTT_sg
+            rule_desc: Allow all instances with the same SG to communicate.
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+            rule_desc: Allow all outbound traffic
+
+- name: Create instances
+  hosts: localhost
+  tasks:
+    - name: Create broker instance
+      amazon.aws.ec2_instance:
+        region: us-east-1
+        name: ansible_MQTT_broker
+        key_name: ansible_keypair
+        vpc_subnet_id: subnet-08d18f7b0f9341344
+        instance_type: t2.micro
+        security_group: ansible_MQTT_sg
+        image_id: ami-052efd3df9dad4825
+        state: started
+    - name: Create subscriber instance
+      amazon.aws.ec2_instance:
+        region: us-east-1
+        name: ansible_MQTT_subscriber
+        key_name: ansible_keypair
+        vpc_subnet_id: subnet-08d18f7b0f9341344
+        instance_type: t2.micro
+        security_group: ansible_MQTT_sg
+        image_id: ami-052efd3df9dad4825
+        state: started
+    - name: Create publisher instance
+      amazon.aws.ec2_instance:
+        region: us-east-1
+        name: ansible_MQTT_publisher
+        key_name: ansible_keypair
+        vpc_subnet_id: subnet-08d18f7b0f9341344
+        instance_type: t2.micro
+        security_group: ansible_MQTT_sg
+        image_id: ami-052efd3df9dad4825
+        state: started
+    - name: Refresh dynamic inventory
+      meta: refresh_inventory
+
+- name: Set up broker
+  hosts: tag_Name_ansible_MQTT_broker
+  tasks:
+    - name: Install mosquitto
+      apt:
+        name: mosquitto
+        state: present
+        update_cache: yes
+      become: yes
+    - name: Copy config file
+      copy:
+        src: templates/mosquitto_config.conf
+        dest: /etc/mosquitto/conf.d/default.conf
+      become: yes
+    - name: Reload config
+      service:
+        name: mosquitto
+        state: restarted
+      become: yes
+
+- name: Set up subscriber
+  hosts: tag_Name_ansible_MQTT_subscriber
+  tasks:
+    - name: Install pip
+      apt:
+        name: python3-pip
+        state: present
+        update_cache: yes
+      become: yes
+    - name: Install boto3
+      pip:
+        name: boto3
+    - name: Get paho
+      git:
+        repo: https://github.com/eclipse/paho.mqtt.python.git
+        dest: "/home/ubuntu/paho.mqtt.python"
+    - name: Install paho
+      command: python3 setup.py install
+      args:
+        chdir: "/home/ubuntu/paho.mqtt.python"
+      become: yes
+    - name: Copy sub script
+      template:
+        src: templates/mqtt_sub.py.j2
+        dest: ~/mqtt_sub.py
+
+- name: Set up publisher
+  hosts: tag_Name_ansible_MQTT_publisher
+  tasks:
+    - name: Get paho
+      git:
+        repo: https://github.com/eclipse/paho.mqtt.python.git
+        dest: "/home/ubuntu/paho.mqtt.python"
+    - name: Install paho
+      command: python3 setup.py install
+      args:
+        chdir: "/home/ubuntu/paho.mqtt.python"
+      become: yes
+    - name: Copy pub script
+      template:
+        src: templates/mqtt_pub.py.j2
+        dest: ~/mqtt_pub.py

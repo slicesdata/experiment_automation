@@ -1,0 +1,19 @@
+---
+- name: Run the subscriber script
+  hosts: tag_Name_ansible_MQTT_subscriber
+  tasks:
+    - command: nohup python3 mqtt_sub.py &
+      args:
+        chdir: /home/ubuntu
+      async: 10000
+      poll: 0
+
+- name: Run the publisher script
+  hosts: tag_Name_ansible_MQTT_publisher
+  tasks:
+    - command: nohup python3 mqtt_pub.py &
+      args:
+        chdir: /home/ubuntu
+      async: 10000
+      poll: 0
+      

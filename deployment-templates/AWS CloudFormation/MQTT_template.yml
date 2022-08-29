@@ -1,0 +1,231 @@
+Description: This stack creates the enviroment for a sample experiment with three instances representing a MQTT broker, subscriber and publisher. It also creates a security group and a dynamodb table for the sensor values.
+Parameters:
+  AWSKeyId:
+    Description: The AWS Access key id used by the MQTT subscriber script to access the dynamodb table.
+    Type: String
+    AllowedPattern: .+
+  AWSSecretKey:
+    Description: The AWS Secret Access key used by the MQTT subscriber script to access the dynamodb table.
+    Type: String
+    AllowedPattern: .+
+Resources:
+  securityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: CF_MQTT_sg
+      GroupDescription: Allows EC2 instances to communicate with eachother, as well as allowing SSH access and ICMP from anywhere.
+      SecurityGroupIngress:
+        # allow pinging from anywhere
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+        # allow SSH access from anywhere
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        # allow communication between EC2 instances with the same securitygroup
+        - IpProtocol: -1
+          SourceSecurityGroupName: CF_MQTT_sg
+  dynamoDbTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: sensor_values
+      AttributeDefinitions:
+        - AttributeName: measurement_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: measurement_id
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  MQTTBroker:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            # install mosquitto
+            apt:
+              mosquitto: []
+          services:
+            # reload mosquitto service after config change
+            systemd:
+              mosquitto.service:
+                enables: true
+                files:
+                  - "/etc/mosquitto/conf.d/default.conf"
+          files:
+            # create mosquitto config file
+            /etc/mosquitto/conf.d/default.conf:
+              content: |
+                listener 1883
+                allow_anonymous true
+                #log_type all
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CF_MQTT_Broker
+      InstanceType: t2.micro
+      # an ubuntu 20.04 image (the cfn helper scripts don't work on later ubuntu
+      # versions as they're not updated to work with python versions 3.10+)
+      ImageId: ami-08d4ac5b634553e16
+      SecurityGroups:
+        - !Ref securityGroup
+      # the userdata script installs and runs the cfn helper scripts
+      UserData: 
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -x
+
+            apt-get update -y
+            mkdir -p /opt/aws/bin
+            wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz &> /home/ubuntu/wget_result.txt
+            python3 -m easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-py3-latest.tar.gz  &> /home/ubuntu/install_result.txt
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --region ${AWS::Region} --resource MQTTBroker &> /home/ubuntu/cfn-init.output
+    DependsOn:
+      - securityGroup
+  MQTTSub:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          InstallAndRun:
+            - install
+        install:
+          packages:
+            # install pip
+            apt:
+              python3-pip: []
+          commands:
+            # install boto3 (the cfn script uses the deprecated easy_install
+            # to install python packages so boto3 is installed manually)
+            installboto3:
+              command: python3 -m pip install boto3
+            # install paho mqtt client
+            getpaho:
+              command: git clone https://github.com/eclipse/paho.mqtt.python.git
+              cwd: /home/ubuntu
+            installpaho:
+              command: python3 setup.py install
+              cwd: /home/ubuntu/paho.mqtt.python
+          files:
+            # create mqtt subscriber script
+            /home/ubuntu/mqtt_sub.py:
+              content: !Sub |
+                import paho.mqtt.client as mqtt
+                import boto3, uuid
+                import datetime as dt
+                from decimal import Decimal
+
+                db = boto3.resource(
+                    "dynamodb",
+                    aws_access_key_id="${AWSKeyId}",
+                    aws_secret_access_key="${AWSSecretKey}",
+                    region_name="us-east-1"
+                )
+                table = db.Table("sensor_values")
+
+                def on_connect(client, userdata, flags, rc):
+                    print("Connected with result code "+str(rc))
+                    client.subscribe("test/sensor_value")
+
+                def on_message(client, userdata, msg):
+                    print(msg.topic+" "+str(msg.payload))
+
+                    print("\tSaving to db...")
+                    table.put_item(Item={"date":str(dt.datetime.now()), "sensor_value": Decimal(str(float(msg.payload))), "measurement_id":str(uuid.uuid4())})	
+
+                client = mqtt.Client()
+                client.on_connect = on_connect
+                client.on_message = on_message
+
+                client.connect("${MQTTBroker.PublicDnsName}", 1883, 60)
+                client.loop_forever()
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CF_MQTT_Subscriber
+      InstanceType: t2.micro
+      ImageId: ami-08d4ac5b634553e16
+      SecurityGroups:
+        - !Ref securityGroup
+      UserData: 
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -x
+
+            apt-get update -y
+            mkdir -p /opt/aws/bin
+            wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz &> /home/ubuntu/wget_result.txt
+            python3 -m easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-py3-latest.tar.gz  &> /home/ubuntu/install_result.txt
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --region ${AWS::Region} --resource MQTTSub --configsets InstallAndRun &> /home/ubuntu/cfn-init.output
+    DependsOn:
+      - dynamoDbTable
+      - MQTTBroker
+      - securityGroup
+  MQTTPub:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          InstallAndRun:
+            - install
+        install:
+          commands:
+            # install paho mqtt client
+            getpaho:
+              command: git clone https://github.com/eclipse/paho.mqtt.python.git
+              cwd: /home/ubuntu
+            installpaho:
+              command: python3 setup.py install
+              cwd: /home/ubuntu/paho.mqtt.python
+          files:
+            # create mqtt publisher script
+            /home/ubuntu/mqtt_pub.py:
+              content: !Sub |
+                import paho.mqtt.client as mqtt
+                import time, random
+
+                def on_connect(client, userdata, flags, rc):
+                    print("Connected with result code "+str(rc))
+
+                def on_message(client, userdata, msg):
+                    print(msg.topic+" "+str(msg.payload))
+
+                client = mqtt.Client()
+                client.on_connect = on_connect
+                client.on_message = on_message
+
+                client.connect("${MQTTBroker.PublicDnsName}", 1883, 60)
+
+                client.loop_start()
+
+                for i in range(100):
+                    time.sleep(5)
+                    print("Publishing...")
+                    res = client.publish("test/sensor_value", random.random())
+                    print(f"Publish status code {res[0]}")
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CF_MQTT_Publisher
+      InstanceType: t2.micro
+      ImageId: ami-08d4ac5b634553e16
+      SecurityGroups:
+        - !Ref securityGroup
+      UserData: 
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash -x
+
+            apt-get update -y
+            mkdir -p /opt/aws/bin
+            wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz &> /home/ubuntu/wget_result.txt
+            python3 -m easy_install --script-dir /opt/aws/bin aws-cfn-bootstrap-py3-latest.tar.gz  &> /home/ubuntu/install_result.txt
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --region ${AWS::Region} --resource MQTTPub --configsets InstallAndRun &> /home/ubuntu/cfn-init.output
+    DependsOn:
+      - MQTTBroker
+      - securityGroup

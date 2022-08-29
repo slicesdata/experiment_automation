@@ -1,0 +1,41 @@
+---
+- name: Terminate instances
+  hosts: localhost
+  tasks:
+    - name: Terminate broker instance
+      amazon.aws.ec2_instance:
+        region: us-east-1
+        state: absent
+        filters:
+          tag:Name: ansible_MQTT_broker
+    - name: Terminate subscriber instance
+      amazon.aws.ec2_instance:
+        region: us-east-1
+        state: absent
+        filters:
+          tag:Name: ansible_MQTT_subscriber
+    - name: Terminate publisher instance
+      amazon.aws.ec2_instance:
+        region: us-east-1
+        state: absent
+        filters:
+          tag:Name: ansible_MQTT_publisher
+
+- name: Remove dynamodb table, ec2 keypair and security group
+  hosts: localhost
+  tasks:
+    - name: Remove sensor_values table
+      community.aws.dynamodb_table:
+        name: sensor_values
+        region: us-east-1
+        state: absent
+    - name: Remove ec2 keypair
+      amazon.aws.ec2_key:
+        name: ansible_keypair
+        region: us-east-1
+        state: absent
+    - name: Remove security group
+      amazon.aws.ec2_group:
+        name: ansible_MQTT_sg
+        region: us-east-1
+        state: absent

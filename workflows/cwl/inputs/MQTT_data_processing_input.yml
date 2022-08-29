@@ -1,0 +1,3 @@
+AWS_ACCESS_KEY_ID: "REDACTED"
+AWS_SECRET_ACCESS_KEY: "REDACTED"
+table_name: sensor_values
