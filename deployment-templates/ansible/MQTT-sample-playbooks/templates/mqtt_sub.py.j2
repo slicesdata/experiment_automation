@@ -3,6 +3,7 @@ import boto3, uuid
 import datetime as dt
 from decimal import Decimal
 
+# Connect to the AWS DynamoDB table using the boto3 API
 db = boto3.resource(
     "dynamodb",
     aws_access_key_id="{{ lookup('env', 'AWS_ACCESS_KEY_ID') }}",
@@ -11,19 +12,27 @@ db = boto3.resource(
 )
 table = db.Table("sensor_values")
 
+# When connected to the MQTT broker, subscribe to the test/sensor_value topic
 def on_connect(client, userdata, flags, rc):
     print("Connected with result code "+str(rc))
     client.subscribe("test/sensor_value")
 
+# When a message is received from the MQTT broker, save it to the DynamoDB
+# table. It is saved with a timestamp, the sensor_value itself and a 
+# generated unique id
 def on_message(client, userdata, msg):
     print(msg.topic+" "+str(msg.payload))
 
     print("\tSaving to db...")
     table.put_item(Item={"date":str(dt.datetime.now()), "sensor_value": Decimal(str(float(msg.payload))), "measurement_id":str(uuid.uuid4())})	
 
+# Create a MQTT client
 client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
+# Connect to the MQTT broker
+# The broker DNS name is filled in by ansible from with values from
+# the dynamic inventory
 client.connect("{{ groups['tag_Name_ansible_MQTT_broker'][0] }}", 1883, 60)
 client.loop_forever()

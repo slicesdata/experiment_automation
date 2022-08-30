@@ -1,5 +1,10 @@
 #!/usr/bin/env cwl-runner
 
+#
+# This tool sorts data using the sort tool. The sort_field determines which
+# field the data should be sorted by.
+#
+
 cwlVersion: v1.0
 class: CommandLineTool
 

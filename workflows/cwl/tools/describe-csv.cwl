@@ -1,5 +1,11 @@
 #!/usr/bin/env cwl-runner
 
+#
+# This tool uses the pandas python module to create a description of CSV data.
+# The description lists the number of data points, the mean, the standard
+# deviation, the minimum/maximum value and the 25%/50%/75% quantiles.
+#
+
 cwlVersion: v1.0
 class: CommandLineTool
 
@@ -10,6 +16,7 @@ hints:
 
 requirements:
   - class: InlineJavascriptRequirement
+  # temporarily create python script which processes the input file.
   - class: InitialWorkDirRequirement
     listing:
       - entryname: script.py

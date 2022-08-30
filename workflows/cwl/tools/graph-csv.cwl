@@ -1,5 +1,9 @@
 #!/usr/bin/env cwl-runner
 
+#
+# This tool uses gnuplot to create a line graph from data in CSV format.
+#
+
 cwlVersion: v1.0
 class: CommandLineTool
 
@@ -9,6 +13,7 @@ hints:
       gnuplot:
 requirements:
   - class: InlineJavascriptRequirement
+  # temporarily creates a gnuplot plot config file
   - class: InitialWorkDirRequirement
     listing:
       - entryname: plot_csv.gnuplot

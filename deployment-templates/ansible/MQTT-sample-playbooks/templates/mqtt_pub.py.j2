@@ -7,14 +7,21 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     print(msg.topic+" "+str(msg.payload))
 
+# Create a MQTT client
 client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 
+# Connect to the MQTT broker
+# The broker DNS name is filled in by ansible from with values from
+# the dynamic inventory
 client.connect("{{ groups['tag_Name_ansible_MQTT_broker'][0] }}", 1883, 60)
 
+# Start processing MQTT events
 client.loop_start()
 
+# Generate 100 random decimal values between 0 and 1 and publish it
+# on the test/sensor_value topic
 for i in range(100):
     time.sleep(5)
     print("Publishing...")

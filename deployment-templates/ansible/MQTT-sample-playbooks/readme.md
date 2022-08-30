@@ -1,11 +1,9 @@
 ## Description
-In this example experiment three AWS EC2 instances are created to, simulate IoT devices using the MQTT protocol. One instance acts as the broker and runs [mosquitto](https://mosquitto.org/) while the other two act as subscriber and publisher using the [Paho Python Client](https://www.eclipse.org/paho/clients/python/).
+In this example experiment three AWS EC2 instances are created to, so simulate IoT devices using the MQTT protocol. One instance acts as the broker and runs [mosquitto](https://mosquitto.org/) while the other two act as subscriber and publisher using the[ Paho Python Client](https://www.eclipse.org/paho/clients/python/).
 
 The publisher generates random "sensor data" which is sent to the broker. This broker then sends this data on to the subscriber which saves the measurements in a AWS dynamodb database.
 
 This folder contains three playbooks. One to setup the experiment creating the dynamodb table, the EC2 SSH keypair, the security group as well as launching and installing the three EC2 instances. The execution playbook runs the subscribing and publishing scripts on the respective EC2 instances while the cleanup playbook removes/terminates everything created during the setup.
-
-As inventory the playbooks make use of the "aws_ec2" dynamic inventory plugin so the user does not have to manage the inventory manually.
 
 ## Requirements
 The following programs/packages are required
