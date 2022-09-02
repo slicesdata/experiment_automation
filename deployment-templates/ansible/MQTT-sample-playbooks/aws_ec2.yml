@@ -5,6 +5,6 @@ keyed_groups:
   - key: tags
     prefix: tag
 filters:
-  instance-state-name : running
+  instance-state-name : running # only show running instances
 hostnames:
-  - dns-name
+  - dns-name # list the instances by public 
